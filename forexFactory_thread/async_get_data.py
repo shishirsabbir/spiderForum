@@ -25,32 +25,27 @@ active_header = header_list[0]
 
 
 
-# all user inputs here
-file_name = input('Enter the file name: ')
-category_url = input('Enter the category URL: ')
-
-
 # get url crawler fast function
-async def get_url(category_url, header):
-    res = httpx.get(category_url, headers=header)
-    parsed_url = parse.urlparse(category_url)
+async def get_url(thread_url, header):
+    res = httpx.get(thread_url, headers=header)
+    parsed_url = parse.urlparse(thread_url)
 
     if res.status_code == 200:
         soup = BeautifulSoup(res.text, 'lxml')
         page_num_tag = soup.select_one('div.forumdisplay__footer li.visible-mv a.last')
         page_num = page_num_tag.string
         # url_path = page_num_tag['href'] # url path is not needed
-        query_list = [f"sort=lastpost&order=desc&page={page}" for page in range(1, int(page_num) + 1)]
+        query_list = [f"page={page}" for page in range(1, int(page_num) + 1)]
         url_list = []
         # generating all the urls
 
         for custom_query in query_list:
-            thread_page_url = parsed_url._replace(query=custom_query).geturl()
-            # print(thread_page_url)
-            url_list.append(thread_page_url)
+            post_url = parsed_url._replace(query=custom_query).geturl()
+            # print(post_url)
+            url_list.append(post_url)
 
-        
         return url_list
+    
     else:
         print(f"Bad Response: {res.status_code}")
         print(f"Got error from page {res.url}")
@@ -59,7 +54,6 @@ async def get_url(category_url, header):
 
 # get html function
 async def get_html(client, url, header):
-        
         res = await client.get(url, headers=header)
         
         if res.status_code == 200:
@@ -69,13 +63,14 @@ async def get_html(client, url, header):
         
 
 
+
 # running the main spider in concurrent mode
-async def fast_spider(header):
+async def fast_spider(header, thread_url):
     async with httpx.AsyncClient(timeout=None) as client:
         tasks = []
 
         # generating the url_list
-        url_list = await get_url(category_url, header)
+        url_list = await get_url(thread_url, header)
 
         for url in url_list:
             tasks.append(asyncio.ensure_future(get_html(client, url, header)))
@@ -86,39 +81,61 @@ async def fast_spider(header):
         # waiting to collect all the response
         async_response = await asyncio.gather(*tasks)
 
-        # getting the thead_list data
-
-        thread_url_list = []
+        # getting the list data
+        html_list = []
+        error_response_list = []
 
         for response in async_response:
             if response['result'] == 200:
-                soup = BeautifulSoup(response['html_string'], 'lxml')
-                thread_tags = soup.select('table#threadslist tr.threadlist__row div.threadlist__title-wrapper')
-
-                for thread in thread_tags:
-                    thread_name = thread.get_text(strip=True)
-                    thread_url = thread.a['href']
-
-                    thread_dict = {
-                        "thread_name": thread_name,
-                        "thread_url": thread_url
-                    }
-
-                    thread_url_list.append(thread_dict)
+                html_list.append(response['html_string'])
+            else:
+                error_response_list.append(response)
 
         
-        return thread_url_list
+        print(f"total html_string collected: {len(html_list)}")
+        return html_list
 
+
+
+
+
+# reading files from local directory
+# file_path: data/json/interactive_trading.json,
+# file_path: data/json/commercial_content.json,
+# file_path: data/json/trading_journals.json,
+# file_path: data/json/platform_tech.json,
+# file_path: data/json/trading_systems.json,
+# file_path: data/json/rookie_talk.json,
+# file_path: data/json/broker_discussion.json,
+# file_path: data/json/trading_discussion.json
+
+
+file_dir = input('Enter file directory: ')
+
+# getting the complete url list
+with open(file_dir, mode='r') as json_file:
+    json_data = json_file.read()
+    url_list = json.loads(json_data)
+    print(f"total number of threads: {len(url_list)}")
 
 
 # running the concurrent
-start_time = time.perf_counter()
-data_list = asyncio.run(fast_spider(active_header)) # running the crawler
-stop_time = time.perf_counter()
 
-print(f"total time took: {stop_time - start_time}")
-print(f"threads found: {len(data_list)}")
+# old html_list
+main_html_list = []
+
+
+for url in url_list:
+    start_time = time.perf_counter()
+    new_html_list = asyncio.run(fast_spider(active_header)) # running the crawler
+    stop_time = time.perf_counter()
+
+    # collection all html and taking them in single list
+    main_html_list.extend(new_html_list)
+
+    print(f"total time took: {stop_time - start_time}")
+    print(f"post found: {len(new_html_list)}")
 
 
 # exporting the data
-exportData(file_name, data_list)
+# exportData(file_name, data_list)
